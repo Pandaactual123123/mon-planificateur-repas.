@@ -1,1 +1,0 @@
-["sel", "poivre", "huile d'olive", "eau", "beurre", "riz", "ail", "farine"]
