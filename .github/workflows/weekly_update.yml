@@ -1,32 +1,42 @@
-name: Weekly Meal Planner
+name: Weekly Grocery Update
 on:
   schedule:
-    - cron: '0 10 * * 4' # Runs every Thursday at 5:00 AM EST
-  workflow_dispatch: # Allows you to run it manually for testing
+    - cron: '0 13 * * 0' # 8:00 AM EST every Sunday
+  workflow_dispatch: # Allows you to trigger it manually for testing
 
 jobs:
-  build:
+  update-report:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run Planner
+      - name: Fetch New Report from Gemini
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python main.py
+        run: |
+          # We send the specific instructions to Gemini to get the "Noise Texture" HTML
+          curl https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${{ secrets.GEMINI_API_KEY }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "contents": [{
+              "parts":[{"text": "Generate a full HTML code (single file) for a grocery report in Quebec (G3G). 
+              Template: Noise Texture. 
+              Sections required: 
+              1. Header with current date. 
+              2. Spend Banner (~45$ budget). 
+              3. Table with 10+ deals (Action: Maxi Direct, Imbattable IGA, or Imbattable Super C). 
+              4. Section: 📦 Faire des réserves (Stock-up 2-3 items). 
+              5. 4 Baby-friendly recipes (Thai, Mexican, BBQ, Quebec). 
+              6. List for AnyList (Sorted by store/action). 
+              Return ONLY raw HTML code."}]
+            }]
+          }' | jq -r '.candidates[0].content.parts[0].text' > index.html
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./
-          publish_branch: gh-pages
+      - name: Commit and Push
+        run: |
+          git config --global user.name 'GroceryBot'
+          git config --global user.email 'bot@grocery.io'
+          git add index.html
+          git commit -m "Weekly report update $(date +'%Y-%m-%d')"
+          git push
