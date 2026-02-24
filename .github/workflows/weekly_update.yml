@@ -11,27 +11,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Fetch New Report from Gemini
+     - name: Fetch New Report from Gemini
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          # We send the specific instructions to Gemini to get the "Noise Texture" HTML
-          curl https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${{ secrets.GEMINI_API_KEY }} \
+          # 1. Get the response and store it in a temp file
+          curl -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${{ secrets.GEMINI_API_KEY }}" \
           -H 'Content-Type: application/json' \
           -d '{
             "contents": [{
-              "parts":[{"text": "Generate a full HTML code (single file) for a grocery report in Quebec (G3G). 
-              Template: Noise Texture. 
-              Sections required: 
-              1. Header with current date. 
-              2. Spend Banner (~45$ budget). 
-              3. Table with 10+ deals (Action: Maxi Direct, Imbattable IGA, or Imbattable Super C). 
-              4. Section: 📦 Faire des réserves (Stock-up 2-3 items). 
-              5. 4 Baby-friendly recipes (Thai, Mexican, BBQ, Quebec). 
-              6. List for AnyList (Sorted by store/action). 
-              Return ONLY raw HTML code."}]
+              "parts":[{"text": "Return ONLY the raw HTML code for a grocery report based on the Noise Texture template for G3G. Do not include markdown code blocks like ```html. Start directly with <!DOCTYPE html>."}]
             }]
-          }' | jq -r '.candidates[0].content.parts[0].text' > index.html
+          }' > response.json
+
+          # 2. Extract the text and remove any potential markdown artifacts
+          cat response.json | jq -r '.candidates[0].content.parts[0].text' | sed 's/^```html//' | sed 's/```$//' > index.html
 
       - name: Commit and Push
         run: |
