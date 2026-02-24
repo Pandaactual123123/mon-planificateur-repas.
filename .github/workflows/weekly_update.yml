@@ -15,20 +15,44 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          # 1. We define the prompt in a variable to keep the curl command clean
-          PROMPT="Act as a grocery strategist for a family in Quebec (G3G). Generate a single-file HTML report based on the Noise Texture template. Sections required: Header, Spend Banner (~45$ budget), Table with 10+ deals focusing on Maxi Price-Matching (Imbattables), Section: Faire des réserves, 4 Baby-friendly recipes, and a list for AnyList. Output ONLY raw HTML. Do not use markdown code blocks. Start with <!DOCTYPE html>."
+          # 1. We use a heredoc to keep the prompt clean and avoid quote errors
+          cat << 'EOF' > prompt.txt
+          Return ONLY the raw HTML code for a grocery report for G3G Québec based on the Noise Texture template. 
+          Include: 10+ deals (Maxi/IGA/Super C), Stock-up section, 4 baby-friendly recipes, and AnyList shopping list.
+          IMPORTANT: Start directly with <!DOCTYPE html>. Do not use markdown backticks or the word 'html'.
+          EOF
 
-          # 2. Make the API call
-          curl -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}" \
+          # 2. Make the API call and capture the HTTP status code
+          RESPONSE=$(curl -s -w "%{http_code}" -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}" \
           -H 'Content-Type: application/json' \
           -d "{
             \"contents\": [{
-              \"parts\":[{\"text\": \"$PROMPT\"}]
+              \"parts\":[{\"text\": \"$(cat prompt.txt)\"}]
             }]
-          }" > response.json
+          }")
 
-          # 3. Extract the text and clean up
-          cat response.json | jq -r '.candidates[0].content.parts[0].text' | sed 's/^```html//' | sed 's/^```//' | sed 's/```$//' > index.html
+          HTTP_STATUS=${RESPONSE: -3}
+          BODY=${RESPONSE:0:${#RESPONSE}-3}
+          echo "$BODY" > response.json
+
+          # 3. DEBUG: Check if the API returned an error
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "API Error: Status $HTTP_STATUS"
+            cat response.json
+            exit 1
+          fi
+
+          # 4. Extract text and handle the "null" case
+          RESULT=$(cat response.json | jq -r '.candidates[0].content.parts[0].text // "error"')
+          
+          if [ "$RESULT" == "error" ] || [ "$RESULT" == "null" ]; then
+            echo "Failed to extract text. API Response was:"
+            cat response.json
+            exit 1
+          fi
+
+          # 5. Save and clean the HTML
+          echo "$RESULT" | sed 's/^```html//' | sed 's/^```//' | sed 's/```$//' > index.html
 
       - name: Commit and Push
         run: |
