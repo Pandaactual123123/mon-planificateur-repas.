@@ -3,7 +3,7 @@ import sqlite3
 import datetime
 import json
 import google.generativeai as genai
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Template
 
 # --- 1. CONFIGURATION & AI SETUP ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -15,15 +15,9 @@ def load_config():
         with open('config.json', 'r', encoding='utf-8') as f:
             return json.load(f)
     except:
-        return {"themes": ["Québécois", "Mexicain", "Thaï", "BBQ"], "baby_age": "1 an", "max_prep_time": "30 min", "allergies": "Aucune"}
+        return {"themes": ["Québécois", "Mexicain", "Thaï", "BBQ"], "baby_age": "1 an"}
 
-def load_pantry():
-    try:
-        with open('pantry.json', 'r', encoding='utf-8') as f:
-            return [item.lower() for item in json.load(f)]
-    except: return []
-
-# --- 2. DATA & PRICE MATCH LOGIC ---
+# --- 2. DATA ---
 def setup_mock_db():
     conn = sqlite3.connect(':memory:')
     cursor = conn.cursor()
@@ -38,19 +32,19 @@ def get_culinary_deals(conn):
     rows = cursor.fetchall()
     formatted = []
     for row in rows:
-        discount = round((1 - (row[2]/row[3])) * 100)
-        formatted.append({"product_name": row[1], "merchant": row[0], "price": f"{row[2]}$", "is_match": row[0] != "Maxi", "action": f"Via {row[0]}" if row[0] != "Maxi" else "Prix Maxi"})
+        formatted.append({"product_name": row[0], "merchant": row[1], "price": f"{row[2]}$", "action": f"Via {row[1]}" if row[1] != "Maxi" else "Prix Maxi"})
     return [r[0] for r in rows], formatted
 
 # --- 3. AI GENERATION ---
 def generate_recipes(items, config):
-    if not GEMINI_API_KEY: return []
+    if not GEMINI_API_KEY: return [{"title": "Erreur Clé API", "desc": "Configurez GEMINI_API_KEY dans les Secrets GitHub.", "baby_tip": "", "required_ingredients": []}]
     model = genai.GenerativeModel('gemini-1.5-flash')
-    prompt = f"Chef expert. Crée 4 repas avec: {', '.join(items)}. Thèmes: {config['themes']}. Bébé: {config['baby_age']}. Réponds UNIQUEMENT en JSON: [{{'title':'','desc':'','baby_tip':'','required_ingredients':[]}}]"
+    prompt = f"Tu es un chef. Crée 4 repas avec ces ingrédients: {', '.join(items)}. Thèmes: {config['themes']}. Bébé: {config['baby_age']}. Réponds UNIQUEMENT en JSON: [{{'title':'','desc':'','baby_tip':'','required_ingredients':[]}}]"
     try:
         res = model.generate_content(prompt)
         return json.loads(res.text.strip().replace('```json', '').replace('```', ''))
-    except: return []
+    except:
+        return [{"title": "En attente", "desc": "L'IA n'a pas pu générer les recettes cette fois.", "baby_tip": "", "required_ingredients": []}]
 
 # --- 4. RUN ---
 def main():
@@ -59,7 +53,16 @@ def main():
     items, deals = get_culinary_deals(db)
     recipes = generate_recipes(items, config)
     
-    # SIMPLE HTML TEMPLATE
     html_template = """
-    <!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'><style>body{font-family:sans-serif;padding:20px
+    <!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><style>body{font-family:sans-serif;padding:20px;background:#f4f4f4}.card{background:white;padding:15px;margin-bottom:10px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}h1{color:#e74c3c}.tag{background:#e74c3c;color:white;padding:2px 6px;border-radius:4px;font-size:12px;float:right}</style></head>
+    <body><h1>Mon Panificateur - {{ date }}</h1>
+    <h2>Deals Price Match</h2>{% for d in deals %}<div class='card'><span class='tag'>{{ d.action }}</span><b>{{ d.product_name }}</b> - {{ d.price }}</div>{% endfor %}
+    <h2>Menu</h2>{% for r in recipes %}<div class='card'><h3>{{ r.title }}</h3><p>{{ r.desc }}</p><small>👶 Astuce bébé: {{ r.baby_tip }}</small></div>{% endfor %}
+    </body></html>
+    """
+    t = Template(html_template)
+    with open('index.html', 'w', encoding='utf-8') as f:
+        f.write(t.render(date=datetime.date.today().strftime('%d/%m/%Y'), deals=deals, recipes=recipes))
 
+if __name__ == "__main__":
+    main()
