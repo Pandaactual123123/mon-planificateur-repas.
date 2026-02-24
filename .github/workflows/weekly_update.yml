@@ -2,7 +2,7 @@ name: Weekly Grocery Update
 on:
   schedule:
     - cron: '0 13 * * 0' # 8:00 AM EST every Sunday
-  workflow_dispatch: # Allows you to trigger it manually for testing
+  workflow_dispatch: # Allows you to manually trigger the update from the Actions tab
 
 jobs:
   update-report:
@@ -11,26 +11,34 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-     - name: Fetch New Report from Gemini
+      - name: Fetch New Report from Gemini
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          # 1. Get the response and store it in a temp file
-          curl -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${{ secrets.GEMINI_API_KEY }}" \
+          # 1. Request the content from Gemini
+          curl -X POST "[https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$](https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$){{ secrets.GEMINI_API_KEY }}" \
           -H 'Content-Type: application/json' \
           -d '{
             "contents": [{
-              "parts":[{"text": "Return ONLY the raw HTML code for a grocery report based on the Noise Texture template for G3G. Do not include markdown code blocks like ```html. Start directly with <!DOCTYPE html>."}]
+              "parts":[{"text": "Act as a grocery strategist for a family in Quebec (G3G). Generate a single-file HTML report based on the Noise Texture template. 
+              Required sections: 
+              - Header with current date.
+              - Spend Banner (~45$ budget).
+              - Table with 10+ deals focusing on Maxi Price-Matching (Imbattables) for IGA and Super C.
+              - Section: 📦 Faire des réserves (Stock-up items).
+              - 4 Baby-friendly recipes (Thai, Mexican, BBQ, Quebec).
+              - Grocery list formatted for AnyList.
+              Output ONLY raw HTML. Do not use markdown code blocks. Start with <!DOCTYPE html>."}]
             }]
           }' > response.json
 
-          # 2. Extract the text and remove any potential markdown artifacts
-          cat response.json | jq -r '.candidates[0].content.parts[0].text' | sed 's/^```html//' | sed 's/```$//' > index.html
+          # 2. Extract the text using jq and clean up any markdown backticks if present
+          cat response.json | jq -r '.candidates[0].content.parts[0].text' | sed 's/^```html//' | sed 's/^```//' | sed 's/```$//' > index.html
 
       - name: Commit and Push
         run: |
           git config --global user.name 'GroceryBot'
           git config --global user.email 'bot@grocery.io'
+          # Check if there are changes to avoid empty commit errors
           git add index.html
-          git commit -m "Weekly report update $(date +'%Y-%m-%d')"
-          git push
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Weekly report update $(date +'%Y-%m-%d')" && git push)
